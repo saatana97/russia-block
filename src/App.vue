@@ -26,13 +26,14 @@
 					:style="{...boxStyle,backgroundColor:box?item.color:'transparent'}"
 				></div>
 			</div>
+			<p>本局得分 {{scope}}</p>
+			<p>历史最佳 {{best}}</p>
+			<button v-if="status===0" @click="status = 1">点击暂停</button>
+			<button v-if="status===1" @click="status = 0">点击继续</button>
+			<button v-if="status===2" @click="restart">重新开始</button>
 		</div>
 		<div class="info">
-			<h1>Scope:{{scope}}</h1>
-			<h1>Best:{{best}}</h1>
-			<button v-if="status===0" @click="status = 1">暂停</button>
-			<button v-if="status===1" @click="status = 0">继续</button>
-			<button v-if="status===2" @click="restart">重新开始</button>
+			<p>♥♥♥最爱小怂怂的土鸡</p>
 		</div>
 	</div>
 </template>
@@ -384,6 +385,15 @@ html {
 					background-color: skyblue;
 					margin-bottom: 10%;
 				}
+				button {
+					border: none;
+					outline: none;
+					padding: 1% 5%;
+					margin: 2% 0;
+					border-radius: 5px;
+					background: brown;
+					color: white;
+				}
 			}
 			.box {
 				width: 10px;
@@ -395,7 +405,13 @@ html {
 				}
 			}
 			.info {
-				clear: both;
+				position: fixed;
+				right: 0;
+				bottom: 0;
+				p {
+					color: indianred;
+					text-align: right;
+				}
 			}
 		}
 	}
