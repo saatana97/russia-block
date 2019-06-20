@@ -1,14 +1,21 @@
 <template>
-	<div id="app" @keydown="handleKeydown">
-		<div class="boxs" :style="{width:this.width+'px',height:this.height+'px'}">
-			<div
-				class="box"
-				v-for="(box,i) in boxs.flat()"
-				:key="i"
-				:class="{active:box}"
-				:style="{...boxStyle,backgroundColor:box?box:'transparent'}"
-			></div>
-		</div>
+	<div id="app" @click="handleSwipeUp">
+		<v-touch
+			@swipeleft="handleSwipeLeft"
+			@swiperight="handleSwipeRight"
+			@swipedown="handleSwipeDown"
+			@swipeup="handleSwipeUp"
+		>
+			<div class="boxs" :style="{width:this.width+'px',height:this.height+'px'}">
+				<div
+					class="box"
+					v-for="(box,i) in boxs.flat()"
+					:key="i"
+					:class="{active:box}"
+					:style="{...boxStyle,backgroundColor:box?box:'transparent'}"
+				></div>
+			</div>
+		</v-touch>
 		<div class="next">
 			<div v-for="(item,i) in next" :key="i" :style="nextBoxsStyle">
 				<div
@@ -19,6 +26,13 @@
 					:style="{...boxStyle,backgroundColor:box?item.color:'transparent'}"
 				></div>
 			</div>
+		</div>
+		<div class="info">
+			<h1>Scope:{{scope}}</h1>
+			<h1>Best:{{best}}</h1>
+			<button v-if="status===0" @click="status = 1">暂停</button>
+			<button v-if="status===1" @click="status = 0">继续</button>
+			<button v-if="status===2" @click="restart">重新开始</button>
 		</div>
 	</div>
 </template>
@@ -39,9 +53,11 @@ export default {
 			best: 0,
 			next: [],
 			blocks: [],
-			speed: 100,
+			speed: 1000,
 			current: null,
-			clearId: null
+			clearId: null,
+			lasttime: 0,
+			clock: 0
 		};
 	},
 	mounted() {
@@ -52,11 +68,39 @@ export default {
 		this.restart();
 	},
 	methods: {
-		handleKeydown(e) {
-			console.info(e);
+		handleSwipeUp(e) {
+			let temp = this.current.clone();
+			temp.rotate();
+			if (!this.collision(temp)) {
+				this.current.rotate();
+			}
+		},
+		handleSwipeDown(e) {
+			let row = 0,
+				temp = this.current.clone();
+			do {
+				temp.move(0, 1);
+				row++;
+			} while (!this.collision(temp));
+			this.current.move(0, row - 1);
+		},
+		handleSwipeLeft(e) {
+			let temp = this.current.clone();
+			temp.move(-1, 0);
+			if (!this.collision(temp)) {
+				this.current.move(-1, 0);
+			}
+		},
+		handleSwipeRight(e) {
+			let temp = this.current.clone();
+			temp.move(1, 0);
+			if (!this.collision(temp)) {
+				this.current.move(1, 0);
+			}
 		},
 		restart() {
 			clearInterval(this.clearId);
+			this.lasttime = 0;
 			this.status = 0;
 			this.store();
 			this.scope = 0;
@@ -67,48 +111,76 @@ export default {
 			];
 			this.current = Block.instance(Block.randomType());
 			this.blocks = [];
-			const update = this.update.bind(this);
-			this.clearId = setInterval(() => {
-				update();
-			}, this.speed);
+			for (let row = 0; row < this.row; row++) {
+				this.blocks.push(new Array(this.col).fill(0));
+			}
+			this.lasttime = 0;
+			this.clock = 0;
+			this.update(0);
 		},
-		update() {
+		update(timestamp) {
+			let update = this.update.bind(this);
+			this.clearId = requestAnimationFrame(update);
+			this.clock += timestamp - this.lasttime;
+			this.lasttime = timestamp;
 			if (this.status === 0) {
-				let temp = this.current.clone();
-				temp.move(0, 1);
-				if (this.collision(temp)) {
-					this.blocks.push(this.current);
-					this.current = this.next.shift();
-					this.next.push(Block.instance(Block.randomType()));
-					if (this.collision(this.current)) {
-						this.status = 2;
+				if (this.clock >= this.speed) {
+					this.clock %= this.speed;
+					let temp = this.current.clone();
+					temp.move(0, 1);
+					if (this.collision(temp)) {
+						this.current.worldPosition().forEach(item => {
+							this.blocks[item[1]][item[0]] = this.current.color;
+						});
+						this.current = this.next.shift();
+						this.next.push(Block.instance(Block.randomType()));
+						if (this.collision(this.current)) {
+							this.status = 2;
+						} else {
+							this.tryClear();
+						}
 					} else {
-						this.tryClear();
+						this.current.move(0, 1);
 					}
-				} else {
-					this.current.move(0, 1);
 				}
-			} else {
-				// alert("游戏结束，本局得分" + this.scope);
+			} else if (this.status === 2) {
+				alert("游戏结束，本局得分" + this.scope);
 				this.restart();
 			}
 		},
-		tryClear() {},
+		tryClear() {
+			for (let row = this.row - 1; row >= 0; row--) {
+				let fill = true;
+				for (let col = 0; col <= this.col; col++) {
+					fill &= this.blocks[row][col] !== 0;
+				}
+				if (fill) {
+					this.scope++;
+					this.speed = Math.max(1000 - this.scope, 100);
+					this.blocks.splice(row, 1);
+					this.blocks.unshift(new Array(this.col).fill(0));
+				}
+			}
+		},
 		collision(block) {
 			const _this = this;
-			let find = this.blocks.find(item => {
-				let res = block.collision(item);
-				return res;
-			});
+			let arr = block.worldPosition();
+			let find = false;
+			try {
+				find = !arr.every(item => {
+					return _this.blocks[item[1]][item[0]] === 0;
+				});
+			} catch (e) {
+				find = true;
+			}
 			find = !!find;
 			if (!find) {
-				let arr = block.worldPosition();
 				let bound = arr.every(item => {
 					return (
-						item[0] >= 0 &&
-						item[0] < _this.row &&
 						item[1] >= 0 &&
-						item[1] < _this.col
+						item[1] < _this.row &&
+						item[0] >= 0 &&
+						item[0] < _this.col
 					);
 				});
 				find = !bound;
@@ -127,14 +199,6 @@ export default {
 			}
 			return res;
 		},
-		remove(block) {
-			if (block instanceof Block) {
-				let arr = block.worldPosition();
-				arr.forEach(item => {
-					this.blocks[item[0]][item[1]] = 0;
-				});
-			}
-		},
 		store() {
 			if (this.scope > this.best) {
 				this.best = localStorage.best = this.scope;
@@ -143,20 +207,13 @@ export default {
 	},
 	computed: {
 		boxs() {
-			let res = [];
-			for (let i = 0; i < this.row; i++) {
-				res.push(new Array(this.col).fill(0));
-			}
-			let arr = [...this.blocks];
+			let res = [...this.blocks];
 			if (this.current) {
-				arr.push(this.current);
-			}
-			arr.forEach(item => {
-				let arr = item.worldPosition();
-				arr.forEach(box => {
-					res[box[0]][box[1]] = item.color;
+				this.current.worldPosition().forEach(item => {
+					res[item[1]] = [...res[item[1]]];
+					res[item[1]][item[0]] = this.current.color;
 				});
-			});
+			}
 			return res;
 		},
 		boxStyle() {
@@ -181,18 +238,51 @@ class Block {
 			[0, 0, 0, 0],
 			[0, 0, 0, 0]
 		];
-		this.position = position || [0, 0];
+		position = position || [0, 0];
+		this.x = position[0];
+		this.y = position[1];
 		this.color = color || "red";
 	}
 	clone() {
 		return new Block(
 			JSON.parse(JSON.stringify(this.boxs)),
-			[...this.position],
+			[this.x, this.y],
 			this.color
 		);
 	}
+	removeRow(row) {
+		row -= this.y;
+		if (row === this.boxs.length - 1) {
+			this.boxs.pop();
+		} else {
+			this.boxs[row] = [0, 0, 0, 0];
+		}
+	}
+	relative(row) {
+		let arr = this.worldPosition();
+		let center = false,
+			top = true,
+			bottom = true;
+		arr.forEach(item => {
+			top &= item[1] < row;
+			center |= item[1] === row;
+			bottom &= item[1] > row;
+		});
+		return { top, center, bottom };
+	}
+	rotate() {
+		let res = [];
+		this.boxs.reverse().forEach((row, rowIndex) => {
+			res.push([]);
+			row.forEach((col, colIndex) => {
+				res[rowIndex][colIndex] = this.boxs[colIndex][rowIndex];
+			});
+		});
+		this.boxs = res;
+	}
 	move(x, y) {
-		this.position = [this.position[0] + x, this.position[1] + y];
+		this.x += x;
+		this.y += y;
 	}
 	collision(target) {
 		let res = false;
@@ -207,13 +297,11 @@ class Block {
 		return res;
 	}
 	worldPosition() {
-		let res = [],
-			x = this.position[0],
-			y = this.position[1];
+		let res = [];
 		this.boxs.forEach((row, rowIndex) => {
 			row.forEach((col, colIndex) => {
-				if (col === 1) {
-					res.push([rowIndex + y, colIndex + x]);
+				if (col !== 0) {
+					res.push([colIndex + this.x, rowIndex + this.y]);
 				}
 			});
 		});
@@ -305,6 +393,9 @@ html {
 				&.active {
 					border-style: outset;
 				}
+			}
+			.info {
+				clear: both;
 			}
 		}
 	}
