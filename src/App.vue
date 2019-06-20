@@ -1,12 +1,16 @@
 <template>
-	<div id="app" @click="handleSwipeUp">
+	<div id="app">
 		<v-touch
 			@swipeleft="handleSwipeLeft"
 			@swiperight="handleSwipeRight"
 			@swipedown="handleSwipeDown"
 			@swipeup="handleSwipeUp"
 		>
-			<div class="boxs" :style="{width:this.width+'px',height:this.height+'px'}">
+			<div
+				class="boxs"
+				@click="handleSwipeUp"
+				:style="{width:this.width+'px',height:this.height+'px'}"
+			>
 				<div
 					class="box"
 					v-for="(box,i) in boxs.flat()"
@@ -31,6 +35,7 @@
 			<button v-if="status===0" @click="status = 1">点击暂停</button>
 			<button v-if="status===1" @click="status = 0">点击继续</button>
 			<button v-if="status===2" @click="restart">重新开始</button>
+			<button @click="auto=!auto">{{auto?"我自己玩":"开挂模式"}}</button>
 		</div>
 		<div class="info">
 			<p>点击/上划 = 变形</p>
@@ -62,11 +67,13 @@ export default {
 			current: null,
 			clearId: null,
 			lasttime: 0,
-			clock: 0
+			clock: 0,
+			auto: false
 		};
 	},
 	mounted() {
 		window.addEventListener("error", e => alert(e.message));
+
 		this.size = Math.floor(window.screen.availWidth / 14);
 		this.width = this.size * 10;
 		this.height = this.width * 2;
@@ -75,11 +82,14 @@ export default {
 	},
 	methods: {
 		handleSwipeUp(e) {
+			let res = false;
 			let temp = this.current.clone();
 			temp.rotate();
 			if (!this.collision(temp)) {
 				this.current.rotate();
+				res = true;
 			}
+			return res;
 		},
 		handleSwipeDown(e) {
 			let row = 0,
@@ -88,21 +98,40 @@ export default {
 				temp.move(0, 1);
 				row++;
 			} while (!this.collision(temp));
-			this.current.move(0, row - 1);
+			this.current.move(0, --row);
+			return row;
 		},
 		handleSwipeLeft(e) {
+			let res = false;
 			let temp = this.current.clone();
 			temp.move(-1, 0);
 			if (!this.collision(temp)) {
 				this.current.move(-1, 0);
+				res = true;
 			}
+			return res;
 		},
 		handleSwipeRight(e) {
+			let res = false;
 			let temp = this.current.clone();
 			temp.move(1, 0);
 			if (!this.collision(temp)) {
 				this.current.move(1, 0);
+				res = true;
 			}
+			return res;
+		},
+		handleRobot() {
+			Robot.cancel();
+			Robot.action(
+				this.current,
+				[...this.blocks].map(item => [...item]),
+				this.collision.bind(this),
+				this.handleSwipeUp.bind(this),
+				this.handleSwipeLeft.bind(this),
+				this.handleSwipeRight.bind(this),
+				this.handleSwipeDown.bind(this)
+			);
 		},
 		restart() {
 			clearInterval(this.clearId);
@@ -214,6 +243,14 @@ export default {
 			}
 		}
 	},
+	watch: {
+		auto(value) {
+			value && this.handleRobot();
+		},
+		current(value) {
+			this.auto && this.handleRobot();
+		}
+	},
 	computed: {
 		boxs() {
 			let res = [...this.blocks];
@@ -240,7 +277,7 @@ export default {
 	}
 };
 class Block {
-	constructor(boxs, position, color) {
+	constructor(boxs, position, color, type) {
 		this.boxs = boxs || [
 			[0, 0, 0, 0],
 			[0, 0, 0, 0],
@@ -250,7 +287,8 @@ class Block {
 		position = position || [0, 0];
 		this.x = position[0];
 		this.y = position[1];
-		this.color = color || "red";
+		this.color = color;
+		this.type = type;
 	}
 	clone() {
 		return new Block(
@@ -356,7 +394,67 @@ class Block {
 			default:
 				throw new Error("unknow block type : " + type);
 		}
-		return new Block(boxs, position, color);
+		return new Block(boxs, position, color, type);
+	}
+}
+function sleep(time) {
+	return new Promise(resolve => {
+		setTimeout(resolve, time);
+	});
+}
+class Robot {
+	/**
+	 * block 当前操作方块的克隆体
+	 * boxs 盒子中存在的方块格子的克隆体
+	 * collision 检测指定是否与盒子中方块格子或者盒子边界碰撞
+	 * transfer 变形操作
+	 * left 左移操作
+	 * right 右移操作
+	 * done 让方块落到底
+	 */
+	static time = 0;
+	static async action(block, boxs, collision, transfer, left, right, done) {
+		let time = Robot.time,
+			targets = [],
+			temp = block.clone();
+		boxs.forEach((row, rowIndex) => {
+			row.reverse().forEach((col, colIndex) => {
+				temp.x = colIndex;
+				temp.y = rowIndex;
+				if (!collision(temp)) {
+					targets.push([temp.x, temp.y]);
+				}
+			});
+		});
+		targets = targets.reverse();
+		for (let index in targets) {
+			let position = targets[index],
+				x = position[0],
+				y = position[1],
+				pass = false;
+			while (Robot.time === time && block.x !== x) {
+				let move = left;
+				if (block.x < x) {
+					move = right;
+				}
+				if (!move()) {
+					pass = true;
+					break;
+				}
+				await sleep(500);
+			}
+			if (!pass) {
+				await sleep(300);
+				if (Robot.time === time) {
+					console.info(targets.reverse()[0]);
+					done();
+					break;
+				}
+			}
+		}
+	}
+	static cancel() {
+		Robot.time++;
 	}
 }
 </script>
@@ -377,15 +475,17 @@ html {
 			background-color: black;
 			width: 100%;
 			height: 100%;
+			display: flex;
+			justify-content: space-between;
 			.boxs {
 				background-color: seagreen;
-				float: left;
 				display: flex;
 				flex-wrap: wrap;
 				border: 1px outset #ccc;
 			}
 			.next {
-				float: right;
+				display: flex;
+				flex-direction: column;
 				> div {
 					display: flex;
 					flex-wrap: wrap;
