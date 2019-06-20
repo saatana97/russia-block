@@ -33,6 +33,10 @@
 			<button v-if="status===2" @click="restart">重新开始</button>
 		</div>
 		<div class="info">
+			<p>点击/上划 = 变形</p>
+			<p>左滑/右滑 = 移动</p>
+			<p>下滑 = 下落</p>
+			<p>贴边时可能会无法变形哦</p>
 			<p>♥♥♥最爱小怂怂的土鸡</p>
 		</div>
 	</div>
@@ -62,6 +66,7 @@ export default {
 		};
 	},
 	mounted() {
+		window.addEventListener("error", e => alert(e.message));
 		this.size = Math.floor(window.screen.availWidth / 14);
 		this.width = this.size * 10;
 		this.height = this.width * 2;
@@ -111,6 +116,7 @@ export default {
 				Block.instance(Block.randomType())
 			];
 			this.current = Block.instance(Block.randomType());
+			this.current.x = Math.floor(this.col / 2) - 2;
 			this.blocks = [];
 			for (let row = 0; row < this.row; row++) {
 				this.blocks.push(new Array(this.col).fill(0));
@@ -134,6 +140,7 @@ export default {
 							this.blocks[item[1]][item[0]] = this.current.color;
 						});
 						this.current = this.next.shift();
+						this.current.x = Math.floor(this.col / 2) - 2;
 						this.next.push(Block.instance(Block.randomType()));
 						if (this.collision(this.current)) {
 							this.status = 2;
@@ -160,6 +167,7 @@ export default {
 					this.speed = Math.max(1000 - this.scope, 100);
 					this.blocks.splice(row, 1);
 					this.blocks.unshift(new Array(this.col).fill(0));
+					row++;
 				}
 			}
 		},
@@ -405,12 +413,17 @@ html {
 				}
 			}
 			.info {
+				width: 100%;
 				position: fixed;
-				right: 0;
-				bottom: 0;
+				right: 2%;
+				bottom: 2%;
 				p {
 					color: indianred;
-					text-align: right;
+					text-align: center;
+					&:last-child {
+						text-align: right;
+						margin-top: 2%;
+					}
 				}
 			}
 		}
