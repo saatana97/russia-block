@@ -605,6 +605,9 @@ class Robot {
 					}
 					await sleep(300);
 				}
+				if (res.length === 0) {
+					await sleep(500);
+				}
 				Robot.time === time && done();
 				break;
 			}
