@@ -68,7 +68,7 @@ export default {
 			clearId: null,
 			lasttime: 0,
 			clock: 0,
-			auto: false
+			auto: true
 		};
 	},
 	mounted() {
@@ -85,7 +85,7 @@ export default {
 			let res = false;
 			let temp = this.current.clone();
 			temp.rotate();
-			if (!this.collision(temp)) {
+			if (!this.collision(temp, this.blocks)) {
 				this.current.rotate();
 				res = true;
 			}
@@ -97,7 +97,7 @@ export default {
 			do {
 				temp.move(0, 1);
 				row++;
-			} while (!this.collision(temp));
+			} while (!this.collision(temp, this.blocks));
 			this.current.move(0, --row);
 			return row;
 		},
@@ -105,7 +105,7 @@ export default {
 			let res = false;
 			let temp = this.current.clone();
 			temp.move(-1, 0);
-			if (!this.collision(temp)) {
+			if (!this.collision(temp, this.blocks)) {
 				this.current.move(-1, 0);
 				res = true;
 			}
@@ -115,7 +115,7 @@ export default {
 			let res = false;
 			let temp = this.current.clone();
 			temp.move(1, 0);
-			if (!this.collision(temp)) {
+			if (!this.collision(temp, this.blocks)) {
 				this.current.move(1, 0);
 				res = true;
 			}
@@ -164,14 +164,14 @@ export default {
 					this.clock %= this.speed;
 					let temp = this.current.clone();
 					temp.move(0, 1);
-					if (this.collision(temp)) {
+					if (this.collision(temp, this.blocks)) {
 						this.current.worldPosition().forEach(item => {
 							this.blocks[item[1]][item[0]] = this.current.color;
 						});
 						this.current = this.next.shift();
 						this.current.x = Math.floor(this.col / 2) - 2;
 						this.next.push(Block.instance(Block.randomType()));
-						if (this.collision(this.current)) {
+						if (this.collision(this.current, this.blocks)) {
 							this.status = 2;
 						} else {
 							this.tryClear();
@@ -200,13 +200,12 @@ export default {
 				}
 			}
 		},
-		collision(block) {
-			const _this = this;
+		collision(block, boxs) {
 			let arr = block.worldPosition();
 			let find = false;
 			try {
 				find = !arr.every(item => {
-					return _this.blocks[item[1]][item[0]] === 0;
+					return boxs[item[1]][item[0]] === 0;
 				});
 			} catch (e) {
 				find = true;
@@ -216,9 +215,9 @@ export default {
 				let bound = arr.every(item => {
 					return (
 						item[1] >= 0 &&
-						item[1] < _this.row &&
+						item[1] < boxs.length &&
 						item[0] >= 0 &&
-						item[0] < _this.col
+						item[0] < boxs[0].length
 					);
 				});
 				find = !bound;
@@ -228,7 +227,7 @@ export default {
 		push(block) {
 			let res = false;
 			if (block instanceof Block) {
-				if (this.collision(block)) {
+				if (this.collision(block, this.blocks)) {
 					this.status = 2;
 				} else {
 					this.blocks.push(block);
@@ -294,7 +293,8 @@ class Block {
 		return new Block(
 			JSON.parse(JSON.stringify(this.boxs)),
 			[this.x, this.y],
-			this.color
+			this.color,
+			this.type
 		);
 	}
 	removeRow(row) {
@@ -402,54 +402,211 @@ function sleep(time) {
 		setTimeout(resolve, time);
 	});
 }
+class Task {
+	constructor(name, invoke, cancel) {
+		this.name = name;
+		this.invokeFn = invoke;
+		this.cancelFn = cancel;
+		this.invoked = false;
+	}
+	invoke() {
+		if (!this.invoked) {
+			this.invokeFn();
+			this.invoked = true;
+		}
+	}
+	cancel() {
+		if (this.invoked) {
+			this.cancelFn();
+			this.invoked = false;
+		}
+	}
+}
 class Robot {
-	/**
-	 * block 当前操作方块的克隆体
-	 * boxs 盒子中存在的方块格子的克隆体
-	 * collision 检测指定是否与盒子中方块格子或者盒子边界碰撞
-	 * transfer 变形操作
-	 * left 左移操作
-	 * right 右移操作
-	 * done 让方块落到底
-	 */
 	static time = 0;
+	static analysis(block, boxs, collision) {
+		let count = 0,
+			res = [];
+		block = block.clone();
+		boxs = [...boxs].map(item => [...item]);
+		for (; count < 4; count++) {
+			let gap = 0;
+			if (!collision(block, boxs)) {
+				let max = 0,
+					fill = 0,
+					arr = block.worldPosition();
+				arr.forEach(item => {
+					max = Math.max(max, item[1]);
+				});
+				boxs.forEach((row, rowIndex) => {
+					if (
+						row.every((box, colIndex) => {
+							return (
+								box !== 0 ||
+								arr.findIndex(
+									item =>
+										item[0] === rowIndex &&
+										item[1] === colIndex
+								) !== -1
+							);
+						})
+					) {
+						fill++;
+					}
+					row.forEach((box, colIndex) => {
+						if (
+							box === 0 &&
+							!boxs
+								.filter((item, index) => index < rowIndex)
+								.every(
+									(item, index) =>
+										item[colIndex] === 0 &&
+										arr.findIndex(
+											item =>
+												item[0] === colIndex &&
+												item[1] === index
+										) === -1
+								)
+						) {
+							gap++;
+						}
+					});
+				});
+				let power = fill * 10 + max * 3 - gap * 5;
+				res.push({
+					count,
+					gap,
+					max,
+					fill,
+					power
+				});
+			} else {
+				res.push({
+					count,
+					gap: boxs.flat().length,
+					max: 0,
+					fill: 0,
+					power: 0
+				});
+			}
+			block.rotate();
+		}
+		return res;
+	}
+	static policy(resolutions, pick) {
+		pick = pick !== false;
+		resolutions = resolutions.sort((prev, next) => {
+			let res = next.fill - prev.fill;
+			if (res === 0) {
+				res = next.max - prev.max;
+			}
+			if (res === 0) {
+				res = prev.gap - next.gap;
+			}
+			// TODO 根据权重优先选择方案
+			return res;
+		});
+		return pick ? resolutions[0] : resolutions;
+	}
+	static validation(block, boxs, collision, resolution) {
+		block = block.clone();
+		let tasks = [],
+			res = [];
+		for (let i = 0; i < resolution.count; i++) {
+			tasks.push(
+				new Task("transfer", block.rotate.bind(block), () => {
+					block.rotate();
+					block.rotate();
+					block.rotate();
+				})
+			);
+		}
+		let x = resolution.x,
+			y = resolution.y;
+		let left = () => {
+				block.x--;
+			},
+			right = () => {
+				block.x++;
+			};
+		for (let i = 0; i < Math.abs(block.x - x); i++) {
+			if (block.x < x) {
+				tasks.push(new Task("right", right, left));
+			} else {
+				tasks.push(new Task("left", left, right));
+			}
+		}
+		let rollback = 0;
+		for (let i = 0; rollback !== tasks.length && i < tasks.length; i++) {
+			let task = tasks[i];
+			if (task.invoked) {
+				continue;
+			}
+			task.invoke();
+			if (collision(block, boxs)) {
+				task.cancel();
+				rollback++;
+			} else {
+				res.push(task.name);
+				i = -1;
+				rollback = 0;
+			}
+		}
+		if (rollback === 0) {
+			let distance = y - block.y;
+			for (let i = 0; i < distance; i++) {
+				block.y++;
+				if (collision(block, boxs)) {
+					rollback = tasks.length;
+					break;
+				}
+			}
+		}
+		return rollback === 0 ? res : false;
+	}
 	static async action(block, boxs, collision, transfer, left, right, done) {
 		let time = Robot.time,
-			targets = [],
+			resolutions = [],
 			temp = block.clone();
 		boxs.forEach((row, rowIndex) => {
-			row.reverse().forEach((col, colIndex) => {
+			for (let colIndex = -1; colIndex < row.length + 1; colIndex++) {
 				temp.x = colIndex;
 				temp.y = rowIndex;
-				if (!collision(temp)) {
-					targets.push([temp.x, temp.y]);
-				}
-			});
-		});
-		targets = targets.reverse();
-		for (let index in targets) {
-			let position = targets[index],
-				x = position[0],
-				y = position[1],
-				pass = false;
-			while (Robot.time === time && block.x !== x) {
-				let move = left;
-				if (block.x < x) {
-					move = right;
-				}
-				if (!move()) {
-					pass = true;
-					break;
-				}
-				await sleep(500);
+				let resolution = Robot.policy(
+					Robot.analysis(temp, boxs, collision)
+				);
+				resolution.x = colIndex;
+				resolution.y = rowIndex;
+				resolutions.push(resolution);
 			}
-			if (!pass) {
-				await sleep(300);
-				if (Robot.time === time) {
-					console.info(targets.reverse()[0]);
-					done();
-					break;
+		});
+		resolutions = Robot.policy(resolutions, false);
+		for (let index in resolutions) {
+			let resolution = resolutions[index],
+				x = resolution.x,
+				y = resolution.y;
+			let res = Robot.validation(block, boxs, collision, resolution);
+			console.info(resolution, res);
+			if (res) {
+				for (let i = 0; Robot.time === time && i < res.length; i++) {
+					let task = res[i];
+					switch (task) {
+						case "left":
+							left();
+							break;
+						case "right":
+							right();
+							break;
+						case "transfer":
+							transfer();
+							break;
+						default:
+							throw new Error("未知指令：" + task);
+					}
+					await sleep(300);
 				}
+				Robot.time === time && done();
+				break;
 			}
 		}
 	}
