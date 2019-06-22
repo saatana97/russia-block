@@ -72,7 +72,7 @@ export default {
 		};
 	},
 	mounted() {
-		window.addEventListener("error", e => alert(e.message));
+		window.addEventListener("error", e => alert("error" + e.message));
 
 		this.size = Math.floor(window.screen.availWidth / 14);
 		this.width = this.size * 10;
@@ -230,7 +230,10 @@ export default {
 				if (this.collision(block, this.blocks)) {
 					this.status = 2;
 				} else {
-					this.blocks.push(block);
+					block.worldPosition().forEach(item => {
+						this.blocks[item[0]][item[1]] = block.color;
+					});
+					// this.blocks.push(block);
 					res = true;
 				}
 			}
@@ -355,7 +358,7 @@ class Block {
 		return res;
 	}
 	static randomType() {
-		let type = "IOTZSLJ".split("");
+		let type = "IIOTTZSLJ".split("");
 		let index = Math.round(Math.random() * (type.length - 1));
 		return type[index];
 	}
@@ -426,66 +429,80 @@ class Robot {
 	static time = 0;
 	static analysis(block, boxs, collision) {
 		let count = 0,
+			row = boxs.length,
+			col = boxs[0].length,
 			res = [];
 		block = block.clone();
 		boxs = [...boxs].map(item => [...item]);
 		for (; count < 4; count++) {
-			let gap = 0;
-			if (!collision(block, boxs)) {
-				let max = 0,
-					fill = 0,
-					arr = block.worldPosition();
-				arr.forEach(item => {
-					max = Math.max(max, item[1]);
-				});
-				boxs.forEach((row, rowIndex) => {
-					if (
-						row.every((box, colIndex) => {
-							return (
-								box !== 0 ||
-								arr.findIndex(
-									item =>
-										item[0] === rowIndex &&
-										item[1] === colIndex
-								) !== -1
-							);
-						})
-					) {
+			let gap = 0,
+				obstacle = 0,
+				max = Number.MAX_VALUE,
+				fill = 0,
+				bound = 0;
+			do {
+				block.y++;
+				if (collision(block, boxs)) {
+					block.y--;
+					break;
+				}
+			} while (true);
+			let all = [...boxs].map(item => [...item]),
+				arr = block.worldPosition(),
+				overrange = false;
+			for (let index in arr) {
+				let item = arr[index];
+				bound = Math.max(bound, Math.abs(item[0] - col / 2));
+				try {
+					all[item[1]][item[0]] = block.color;
+				} catch (e) {
+					overrange = true;
+					break;
+				}
+			}
+			if (!overrange && !collision(block, boxs)) {
+				all.forEach((row, rowIndex) => {
+					if (row.every((box, colIndex) => box !== 0)) {
 						fill++;
 					}
 					row.forEach((box, colIndex) => {
-						if (
-							box === 0 &&
-							!boxs
-								.filter((item, index) => index < rowIndex)
-								.every(
-									(item, index) =>
-										item[colIndex] === 0 &&
-										arr.findIndex(
-											item =>
-												item[0] === colIndex &&
-												item[1] === index
-										) === -1
-								)
-						) {
-							gap++;
+						if (box === 0) {
+							let obs = 0;
+							all.filter(
+								(item, index) => index < rowIndex
+							).forEach((item, index) => {
+								if (item[colIndex] !== 0) {
+									obs++;
+								}
+							});
+							if (obs !== 0) {
+								obstacle += obs;
+								gap++;
+							}
+						} else {
+							max = Math.min(max, rowIndex);
 						}
 					});
 				});
-				let power = fill * 10 + max * 3 - gap * 5;
+				let BASE = col;
+				let power = fill * BASE * 0.5;
+				power += (max / row) * BASE * 0.6;
+				power += (1 - gap / col) * BASE * 0.3;
+				power += (1 - obstacle / row) * BASE * 0.049;
+				power += (bound / (col / 2)) * BASE * 0.01;
+				power += (block.y / row) * BASE * 0.1;
 				res.push({
+					power,
 					count,
 					gap,
+					obstacle,
 					max,
 					fill,
-					power
+					x: block.x,
+					y: block.y
 				});
 			} else {
 				res.push({
-					count,
-					gap: boxs.flat().length,
-					max: 0,
-					fill: 0,
 					power: 0
 				});
 			}
@@ -495,17 +512,12 @@ class Robot {
 	}
 	static policy(resolutions, pick) {
 		pick = pick !== false;
-		resolutions = resolutions.sort((prev, next) => {
-			let res = next.fill - prev.fill;
-			if (res === 0) {
-				res = next.max - prev.max;
-			}
-			if (res === 0) {
-				res = prev.gap - next.gap;
-			}
-			// TODO 根据权重优先选择方案
-			return res;
-		});
+		resolutions = resolutions
+			.filter(item => item.power > 0)
+			.sort((prev, next) => {
+				let res = next.power - prev.power;
+				return res;
+			});
 		return pick ? resolutions[0] : resolutions;
 	}
 	static validation(block, boxs, collision, resolution) {
@@ -537,7 +549,12 @@ class Robot {
 			}
 		}
 		let rollback = 0;
-		for (let i = 0; rollback !== tasks.length && i < tasks.length; i++) {
+		for (
+			let i = 0;
+			rollback !== tasks.filter(item => !item.invoked).length &&
+			i < tasks.length;
+			i++
+		) {
 			let task = tasks[i];
 			if (task.invoked) {
 				continue;
@@ -553,11 +570,12 @@ class Robot {
 			}
 		}
 		if (rollback === 0) {
+			block.x = x;
 			let distance = y - block.y;
 			for (let i = 0; i < distance; i++) {
 				block.y++;
 				if (collision(block, boxs)) {
-					rollback = tasks.length;
+					rollback = -1;
 					break;
 				}
 			}
@@ -568,26 +586,23 @@ class Robot {
 		let time = Robot.time,
 			resolutions = [],
 			temp = block.clone();
-		boxs.forEach((row, rowIndex) => {
-			for (let colIndex = -1; colIndex < row.length + 1; colIndex++) {
-				temp.x = colIndex;
-				temp.y = rowIndex;
-				let resolution = Robot.policy(
-					Robot.analysis(temp, boxs, collision)
-				);
-				resolution.x = colIndex;
-				resolution.y = rowIndex;
-				resolutions.push(resolution);
-			}
-		});
+		for (let colIndex = -3; colIndex < boxs[0].length + 3; colIndex++) {
+			temp.x = colIndex;
+			let resolution = Robot.policy(
+				Robot.analysis(temp, boxs, collision),
+				false
+			);
+			resolutions.push.apply(resolutions, resolution);
+		}
 		resolutions = Robot.policy(resolutions, false);
+		if (temp.type === "I") {
+			console.info(resolutions);
+		}
 		for (let index in resolutions) {
-			let resolution = resolutions[index],
-				x = resolution.x,
-				y = resolution.y;
+			let resolution = resolutions[index];
 			let res = Robot.validation(block, boxs, collision, resolution);
-			console.info(resolution, res);
 			if (res) {
+				console.info(temp.type, resolution, res);
 				for (let i = 0; Robot.time === time && i < res.length; i++) {
 					let task = res[i];
 					switch (task) {
@@ -668,6 +683,7 @@ html {
 				height: 10px;
 				border: 1px solid gray;
 				box-sizing: border-box;
+				transition: background-color 0.05s, border-style 0.05s;
 				&.active {
 					border-style: outset;
 				}
