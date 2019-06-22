@@ -358,7 +358,7 @@ class Block {
 		return res;
 	}
 	static randomType() {
-		let type = "IIOTTZSLJ".split("");
+		let type = "IIOTZSLJ".split("");
 		let index = Math.round(Math.random() * (type.length - 1));
 		return type[index];
 	}
@@ -486,11 +486,14 @@ class Robot {
 				});
 				let BASE = col;
 				let power = fill * BASE * 0.5;
-				power += (max / row) * BASE * 0.6;
+				// power += (max / row) * BASE * 0.6;
+				// power += (1 - gap / col) * BASE * 0.3;
+				// power += (1 - obstacle / row) * BASE * 0.049;
+				power += (max / row) * BASE * 0.45;
 				power += (1 - gap / col) * BASE * 0.3;
-				power += (1 - obstacle / row) * BASE * 0.049;
+				power += (1 - obstacle / row) * BASE * 0.04;
 				power += (bound / (col / 2)) * BASE * 0.01;
-				power += (block.y / row) * BASE * 0.1;
+				power += (block.y / row) * BASE * 0.2;
 				res.push({
 					power,
 					count,
@@ -551,8 +554,9 @@ class Robot {
 		let rollback = 0;
 		for (
 			let i = 0;
-			rollback !== tasks.filter(item => !item.invoked).length &&
-			i < tasks.length;
+			// TODO 这个写法不知道为什么会导致快输了的时候机器人死机....
+			// rollback !== tasks.filter(item => !item.invoked).length &&
+			rollback !== tasks.length && i < tasks.length;
 			i++
 		) {
 			let task = tasks[i];
@@ -595,9 +599,6 @@ class Robot {
 			resolutions.push.apply(resolutions, resolution);
 		}
 		resolutions = Robot.policy(resolutions, false);
-		if (temp.type === "I") {
-			console.info(resolutions);
-		}
 		for (let index in resolutions) {
 			let resolution = resolutions[index];
 			let res = Robot.validation(block, boxs, collision, resolution);
