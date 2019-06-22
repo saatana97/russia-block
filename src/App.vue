@@ -551,25 +551,27 @@ class Robot {
 				tasks.push(new Task("left", left, right));
 			}
 		}
-		let rollback = 0;
-		for (
-			let i = 0;
-			// TODO 这个写法不知道为什么会导致快输了的时候机器人死机....
-			// rollback !== tasks.filter(item => !item.invoked).length &&
-			rollback !== tasks.length && i < tasks.length;
-			i++
-		) {
-			let task = tasks[i];
-			if (task.invoked) {
-				continue;
+		let rollback = 0,
+			i = 0;
+		while (!tasks.every(item => item.invoked)) {
+			if (rollback === tasks.filter(item => !item.invoked).length) {
+				break;
 			}
-			task.invoke();
-			if (collision(block, boxs)) {
-				task.cancel();
-				rollback++;
+			let task = tasks[i++];
+			if (task) {
+				if (task.invoked) {
+					continue;
+				}
+				task.invoke();
+				if (collision(block, boxs)) {
+					task.cancel();
+					rollback++;
+				} else {
+					res.push(task.name);
+					rollback = 0;
+				}
 			} else {
-				res.push(task.name);
-				i = -1;
+				i = 0;
 				rollback = 0;
 			}
 		}
