@@ -1,5 +1,5 @@
 <template>
-	<div id="app">
+	<div id="app" @keyup="handleKeydown">
 		<v-touch
 			@swipeleft="handleSwipeLeft"
 			@swiperight="handleSwipeRight"
@@ -73,14 +73,25 @@ export default {
 	},
 	mounted() {
 		window.addEventListener("error", e => alert("error" + e.message));
-
-		this.size = Math.floor(window.screen.availWidth / 14);
-		this.width = this.size * 10;
-		this.height = this.width * 2;
+		window.addEventListener("resize", e => {
+			window.location.reload();
+		});
+		if (window.innerWidth < window.innerHeight) {
+			this.size = Math.floor(window.innerWidth / (this.col + 4));
+			this.width = this.size * this.col;
+			this.height = this.size * this.row;
+		} else {
+			this.size = Math.floor(window.innerHeight / this.row);
+			this.width = this.size * this.col;
+			this.height = this.size * this.row;
+		}
 		this.best = localStorage.best || 0;
-		this.restart();
+		// this.restart();
 	},
 	methods: {
+		handleKeydown(e) {
+			alert(e.key);
+		},
 		handleSwipeUp(e) {
 			let res = false;
 			let temp = this.current.clone();
@@ -125,6 +136,7 @@ export default {
 			Robot.cancel();
 			Robot.action(
 				this.current,
+				this.next,
 				[...this.blocks].map(item => [...item]),
 				this.collision.bind(this),
 				this.handleSwipeUp.bind(this),
@@ -174,7 +186,7 @@ export default {
 						if (this.collision(this.current, this.blocks)) {
 							this.status = 2;
 						} else {
-							this.tryClear();
+							this.clear();
 						}
 					} else {
 						this.current.move(0, 1);
@@ -185,7 +197,7 @@ export default {
 				this.restart();
 			}
 		},
-		tryClear() {
+		clear() {
 			for (let row = this.row - 1; row >= 0; row--) {
 				let fill = true;
 				for (let col = 0; col <= this.col; col++) {
@@ -223,21 +235,6 @@ export default {
 				find = !bound;
 			}
 			return find;
-		},
-		push(block) {
-			let res = false;
-			if (block instanceof Block) {
-				if (this.collision(block, this.blocks)) {
-					this.status = 2;
-				} else {
-					block.worldPosition().forEach(item => {
-						this.blocks[item[0]][item[1]] = block.color;
-					});
-					// this.blocks.push(block);
-					res = true;
-				}
-			}
-			return res;
 		},
 		store() {
 			if (this.scope > this.best) {
@@ -588,24 +585,35 @@ class Robot {
 		}
 		return rollback === 0 ? res : false;
 	}
-	static async action(block, boxs, collision, transfer, left, right, done) {
+	static async action(
+		block,
+		next,
+		boxs,
+		collision,
+		transfer,
+		left,
+		right,
+		done
+	) {
 		let time = Robot.time,
-			resolutions = [],
-			temp = block.clone();
+			tempBlock = block.clone();
+
+		let resolutions = [];
 		for (let colIndex = -3; colIndex < boxs[0].length + 3; colIndex++) {
-			temp.x = colIndex;
+			tempBlock.x = colIndex;
 			let resolution = Robot.policy(
-				Robot.analysis(temp, boxs, collision),
+				Robot.analysis(tempBlock, boxs, collision),
 				false
 			);
 			resolutions.push.apply(resolutions, resolution);
 		}
 		resolutions = Robot.policy(resolutions, false);
+
 		for (let index in resolutions) {
 			let resolution = resolutions[index];
 			let res = Robot.validation(block, boxs, collision, resolution);
 			if (res) {
-				console.info(temp.type, resolution, res);
+				console.info(tempBlock.type, resolution, res);
 				for (let i = 0; Robot.time === time && i < res.length; i++) {
 					let task = res[i];
 					switch (task) {
@@ -654,7 +662,7 @@ html {
 			width: 100%;
 			height: 100%;
 			display: flex;
-			justify-content: space-between;
+			justify-content: center;
 			.boxs {
 				background-color: seagreen;
 				display: flex;
@@ -692,13 +700,13 @@ html {
 				}
 			}
 			.info {
-				width: 100%;
+				width: 98%;
 				position: fixed;
 				right: 2%;
 				bottom: 2%;
 				p {
 					color: indianred;
-					text-align: center;
+					// text-align: center;
 					&:last-child {
 						text-align: right;
 						margin-top: 2%;
